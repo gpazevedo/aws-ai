@@ -1,0 +1,55 @@
+# =============================================================================
+# Dockerfile for AWS App Runner (Python 3.13 + uv)
+# =============================================================================
+# This Dockerfile builds an App Runner container image using Python 3.13 and uv
+# App Runner expects the application to listen on port 8080
+#
+# Multi-architecture support:
+# - arm64 (default): For production AWS App Runner (Graviton2)
+# - amd64: For local testing on x86_64 machines
+#
+# Build examples:
+#   docker build --platform=linux/arm64 -t myapp:arm64-latest .
+#   docker build --platform=linux/amd64 -t myapp:amd64-latest .
+# =============================================================================
+
+# Multi-arch support - TARGETPLATFORM is automatically set by Docker BuildKit
+# When using --platform=linux/arm64, TARGETPLATFORM=linux/arm64
+# When using --platform=linux/amd64, TARGETPLATFORM=linux/amd64
+# The python:3.13-slim multi-arch manifest will pull the correct variant
+ARG TARGETPLATFORM
+FROM --platform=$TARGETPLATFORM python:3.13-slim
+
+# Install uv - fast Python package installer
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Set working directory
+WORKDIR /app
+
+# Install system dependencies (if needed)
+# Uncomment and modify based on your requirements
+# RUN apt-get update && apt-get install -y \
+#     gcc \
+#     && rm -rf /var/lib/apt/lists/*
+
+# Copy dependency files
+COPY pyproject.toml uv.lock* ./
+
+# Install dependencies using uv
+# --frozen: Use exact versions from uv.lock
+# --no-dev: Skip development dependencies
+RUN uv sync --frozen --no-dev
+
+# Copy application code (exclude test files)
+COPY main.py __init__.py ./
+
+# App Runner expects port 8080
+EXPOSE 8080
+
+# Health check endpoint (optional but recommended)
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health')" || exit 1
+
+# Run application with uvicorn
+# Adjust based on your framework (FastAPI, Flask, etc.)
+CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]

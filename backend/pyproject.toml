@@ -1,0 +1,286 @@
+# =============================================================================
+# Python Project Configuration (pyproject.toml)
+# =============================================================================
+# This file defines your Python project metadata and dependencies for uv
+# Copy this to pyproject.toml and customize for your project
+# =============================================================================
+
+[project]
+name = "my-project"
+version = "0.1.0"
+description = "My AWS Lambda/App Runner/EKS application"
+authors = [
+    {name = "Your Name", email = "you@example.com"}
+]
+# readme = "README.md"  # No README in backend/ - see ../README.md
+requires-python = ">=3.13"
+license = {text = "MIT"}
+
+# Production dependencies
+dependencies = [
+    # Web frameworks (choose one)
+    "fastapi>=0.21.2",        # For REST APIs
+    # "flask>=3.0.0",          # Alternative: Flask
+    # "django>=5.1.0",         # Alternative: Django
+
+    # ASGI server (required for FastAPI/async frameworks)
+    "uvicorn[standard]>=0.38.0",
+
+    # AWS SDK
+    "boto3>=1.40.0",           # AWS SDK for Python
+    "botocore>=1.40.0",
+
+    # Database (uncomment if needed)
+    # "psycopg2-binary>=2.9.0",  # PostgreSQL
+    # "pymongo>=4.10.0",         # MongoDB
+    # "redis>=5.2.0",            # Redis
+
+    # HTTP client
+    "httpx>=0.28.0",           # Modern async HTTP client
+
+    # Data validation
+    "pydantic>=2.12.14",        # Data validation
+    "pydantic-settings>=2.12.0", # Settings management
+
+    # Utilities
+    "python-dotenv>=1.0.0",    # Environment variables
+]
+
+[project.optional-dependencies]
+# Development dependencies
+dev = [
+    "pytest>=9.0.1",
+    "pytest-cov>=7.0.0",
+    "pytest-asyncio>=1.3.0",
+    "ruff>=0.14.5",             # Linting and formatting (November 2025)
+    "pyright>=1.1.407",        # Type checking (November 2025)
+    "pre-commit>=6.0.0",       # Git hooks
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.1",
+    "pytest-cov>=7.0.0",
+    "pytest-asyncio>=1.3.0",
+    "ruff>=0.14.5",
+    "pyright>=1.1.407",
+    "pre-commit>=6.0.0",
+]
+
+# =============================================================================
+# Ruff Configuration (Linting + Formatting)
+# =============================================================================
+# https://docs.astral.sh/ruff/
+
+[tool.ruff]
+# Python version
+target-version = "py313"
+
+# Line length
+line-length = 100
+
+# Source code directories
+src = ["."]
+
+# Exclude patterns
+extend-exclude = [
+    ".venv",
+    ".git",
+    "__pycache__",
+    "*.egg-info",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
+    "build",
+    "dist",
+]
+
+[tool.ruff.lint]
+# Enable rules
+# See: https://docs.astral.sh/ruff/rules/
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort (import sorting)
+    "N",     # pep8-naming
+    "UP",    # pyupgrade (modern Python syntax)
+    "B",     # flake8-bugbear (common bugs)
+    "C4",    # flake8-comprehensions
+    "SIM",   # flake8-simplify
+    "TCH",   # flake8-type-checking
+    "PTH",   # flake8-use-pathlib
+    "RUF",   # Ruff-specific rules
+    "PERF",  # Performance anti-patterns
+    "FURB",  # refurb (modernization)
+]
+
+# Ignore specific rules
+ignore = [
+    "E501",    # Line too long (handled by formatter)
+    "B008",    # Do not perform function call in argument defaults
+    "SIM108",  # Use ternary operator (sometimes less readable)
+]
+
+# Allow auto-fixing for all enabled rules
+fixable = ["ALL"]
+unfixable = []
+
+# Allow unused variables when prefixed with underscore
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.per-file-ignores]
+# Tests can use assertions and relative imports
+"tests/**/*.py" = [
+    "S101",   # Allow assert in tests
+    "PLR2004", # Allow magic values in tests
+]
+
+# __init__.py files can have unused imports (re-exports)
+"__init__.py" = ["F401"]
+
+[tool.ruff.lint.isort]
+# Import sorting configuration
+known-first-party = []
+combine-as-imports = true
+split-on-trailing-comma = true
+
+[tool.ruff.lint.mccabe]
+# Maximum complexity for functions
+max-complexity = 10
+
+[tool.ruff.format]
+# Formatter configuration
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+# =============================================================================
+# Pyright Configuration (Type Checking)
+# =============================================================================
+# https://microsoft.github.io/pyright/
+
+[tool.pyright]
+# Python version
+pythonVersion = "3.13"
+pythonPlatform = "Linux"
+
+# Source directories
+include = ["."]
+exclude = [
+    "**/__pycache__",
+    "**/.pytest_cache",
+    "**/.ruff_cache",
+    "**/node_modules",
+    ".venv",
+    "build",
+    "dist",
+    "test_*.py",
+]
+
+# Type checking mode
+typeCheckingMode = "standard"  # Options: "off", "basic", "standard", "strict"
+
+# Report settings
+reportMissingImports = true
+reportMissingTypeStubs = false
+reportUnusedImport = true
+reportUnusedClass = true
+reportUnusedFunction = true
+reportUnusedVariable = true
+reportDuplicateImport = true
+reportWildcardImportFromLibrary = true
+reportOptionalSubscript = true
+reportOptionalMemberAccess = true
+reportOptionalCall = true
+reportOptionalIterable = true
+reportOptionalContextManager = true
+reportOptionalOperand = true
+reportTypedDictNotRequiredAccess = false
+reportConstantRedefinition = true
+reportIncompatibleMethodOverride = true
+reportIncompatibleVariableOverride = true
+reportUntypedFunctionDecorator = false
+reportUntypedClassDecorator = false
+reportUntypedBaseClass = true
+reportUntypedNamedTuple = true
+reportPrivateUsage = true
+reportPrivateImportUsage = true
+reportInconsistentConstructor = true
+reportUnknownParameterType = true
+reportUnknownArgumentType = false
+reportUnknownLambdaType = false
+reportUnknownVariableType = false
+reportUnknownMemberType = false
+reportMissingParameterType = true
+reportMissingTypeArgument = true
+reportInvalidTypeVarUse = true
+reportCallInDefaultInitializer = true
+reportUnnecessaryIsInstance = true
+reportUnnecessaryCast = true
+reportUnnecessaryComparison = true
+reportAssertAlwaysTrue = true
+reportSelfClsParameterName = true
+reportImplicitStringConcatenation = false
+reportUndefinedVariable = true
+reportUnboundVariable = true
+
+# =============================================================================
+# Pytest Configuration
+# =============================================================================
+
+[tool.pytest.ini_options]
+testpaths = ["."]
+python_files = ["test_*.py", "*_test.py"]
+python_functions = ["test_*"]
+python_classes = ["Test*"]
+addopts = [
+    "--verbose",
+    "--cov=.",
+    "--cov-report=term-missing:skip-covered",
+    "--cov-report=html",
+    "--cov-report=xml",
+    "--cov-branch",
+    "--strict-markers",
+    "--tb=short",
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "integration: marks tests as integration tests",
+    "unit: marks tests as unit tests",
+]
+
+# =============================================================================
+# Coverage Configuration
+# =============================================================================
+
+[tool.coverage.run]
+source = ["."]
+branch = true
+omit = [
+    "test_*.py",
+    "*/__pycache__/*",
+    "*/site-packages/*",
+]
+
+[tool.coverage.report]
+precision = 2
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]

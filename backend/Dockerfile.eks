@@ -1,0 +1,65 @@
+# =============================================================================
+# Dockerfile for EKS (Python 3.13 + uv)
+# =============================================================================
+# Multi-stage build for optimized EKS container images
+#
+# Multi-architecture support:
+# - arm64 (default): For production EKS on Graviton2 nodes
+# - amd64: For local testing or x86_64 EKS nodes
+#
+# Build examples:
+#   docker build --platform=linux/arm64 -t myapp:arm64-latest .
+#   docker build --platform=linux/amd64 -t myapp:amd64-latest .
+# =============================================================================
+
+# Build stage - uses TARGET platform to ensure dependencies match runtime
+# For Python, we need dependencies compiled for the TARGET architecture
+# TARGETPLATFORM is automatically set by Docker BuildKit based on --platform flag
+ARG TARGETPLATFORM
+FROM --platform=$TARGETPLATFORM python:3.13-slim AS builder
+
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+WORKDIR /app
+
+# Copy dependency files
+COPY pyproject.toml uv.lock* ./
+
+# Install dependencies
+RUN uv sync --frozen --no-dev
+
+# Copy application code (exclude test files)
+COPY main.py __init__.py ./
+
+# Runtime stage - uses TARGET platform (deployment CPU)
+# TARGETPLATFORM is automatically set by Docker BuildKit based on --platform flag
+ARG TARGETPLATFORM
+FROM --platform=$TARGETPLATFORM python:3.13-slim
+
+# Create non-root user for security
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+
+WORKDIR /app
+
+# Copy from builder
+COPY --from=builder /app /app
+
+# Install uv in runtime
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Change ownership
+RUN chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
+
+# Expose port (customize based on your app)
+EXPOSE 8000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+
+# Run application
+CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

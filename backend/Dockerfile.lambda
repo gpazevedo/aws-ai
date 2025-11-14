@@ -1,0 +1,44 @@
+# =============================================================================
+# Dockerfile for AWS Lambda (Python 3.13 + uv)
+# =============================================================================
+# This Dockerfile builds a Lambda container image using Python 3.13 and uv
+# for dependency management
+#
+# Multi-architecture support:
+# - arm64 (default): For production AWS Lambda (Graviton2)
+# - amd64: For local testing on x86_64 machines
+#
+# Build examples:
+#   docker build --platform=linux/arm64 -t myapp:arm64-latest .
+#   docker build --platform=linux/amd64 -t myapp:amd64-latest .
+# =============================================================================
+
+# Multi-arch support - TARGETPLATFORM is automatically set by Docker BuildKit
+# When using --platform=linux/arm64, TARGETPLATFORM=linux/arm64
+# When using --platform=linux/amd64, TARGETPLATFORM=linux/amd64
+# The python:3.13 multi-arch manifest will pull the correct variant
+ARG TARGETPLATFORM
+FROM --platform=$TARGETPLATFORM ghcr.io/astral-sh/uv:latest AS uv
+FROM --platform=$TARGETPLATFORM public.ecr.aws/lambda/python:3.13
+
+# Install uv - fast Python package installer (from correct architecture)
+COPY --from=uv /uv /usr/local/bin/uv
+
+# Set working directory
+WORKDIR ${LAMBDA_TASK_ROOT}
+
+# Copy dependency files
+COPY pyproject.toml uv.lock* ./
+
+# Install dependencies using uv
+# --frozen: Use exact versions from uv.lock
+# --no-dev: Skip development dependencies
+# --no-cache: Don't cache downloads (reduces image size)
+RUN uv sync --frozen --no-dev --no-cache
+
+# Copy application code (exclude test files)
+COPY main.py __init__.py ./
+
+# Lambda handler
+# Format: filename.function_name
+CMD ["main.handler"]

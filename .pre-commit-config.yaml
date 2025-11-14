@@ -1,0 +1,81 @@
+# =============================================================================
+# Pre-Commit Configuration
+# =============================================================================
+# Automatically format, lint, and type-check Python code on every commit
+# Install: make setup-pre-commit
+# =============================================================================
+
+repos:
+  # Ruff - Fast Python linter and formatter (replaces black, flake8, isort, etc.)
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.5  # November 2025 - Latest stable
+    hooks:
+      # Run linter with auto-fix
+      - id: ruff
+        args: [--fix]
+        types_or: [python, pyi]
+
+      # Run formatter
+      - id: ruff-format
+        types_or: [python, pyi]
+
+  # Pyright - Microsoft's static type checker for Python
+  - repo: https://github.com/RobertCraigie/pyright-python
+    rev: v1.1.407  # November 2025 - Latest
+    hooks:
+      - id: pyright
+        additional_dependencies: []
+
+  # General pre-commit hooks for file quality
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0  # November 2025 - Latest
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--unsafe]  # Allow custom YAML tags
+      - id: check-toml
+      - id: check-json
+      - id: check-added-large-files
+        args: [--maxkb=1000]
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: check-case-conflict
+      - id: check-docstring-first
+      - id: check-ast  # Check Python syntax
+
+  # Terraform formatting (for .tf files)
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.96.1  # November 2025 - Latest
+    hooks:
+      - id: terraform_fmt
+      - id: terraform_validate
+        args:
+          - --hook-config=--retry-once-with-cleanup=true
+      - id: terraform_tflint
+        args:
+          - --args=--config=__GIT_WORKING_DIR__/.tflint.hcl
+        exclude: ^bootstrap/
+
+# Configuration
+default_language_version:
+  python: python3.13
+
+# Exclude patterns
+exclude: |
+  (?x)^(
+    \.terraform/.*|
+    \.git/.*|
+    \.venv/.*|
+    __pycache__/.*|
+    .*\.egg-info/.*|
+    build/.*|
+    dist/.*
+  )$
+
+# Fail fast - stop on first failure
+fail_fast: false
+
+# Minimum version
+minimum_pre_commit_version: '3.5.0'

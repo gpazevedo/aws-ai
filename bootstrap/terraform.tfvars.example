@@ -1,0 +1,174 @@
+# =============================================================================
+# Bootstrap Infrastructure Configuration Example
+# =============================================================================
+# Copy this file to terraform.tfvars and customize for your setup
+# cp terraform.tfvars.example terraform.tfvars
+# =============================================================================
+
+# =============================================================================
+# Core Project Configuration
+# =============================================================================
+
+# Project name - used for naming all resources (lowercase, alphanumeric, hyphens only)
+project_name = "my-project"  # REQUIRED: Change this to your project name
+
+# AWS region for all resources
+aws_region = "us-east-1"
+
+# =============================================================================
+# GitHub Configuration
+# =============================================================================
+
+# Your GitHub organization or username
+github_org = "my-github-org"  # REQUIRED: Change this
+
+# Your GitHub repository name
+github_repo = "my-repo"  # REQUIRED: Change this
+
+# Create test environment (in addition to dev and prod)
+enable_test_environment = false  # Set to true if you need a test environment
+
+# =============================================================================
+# Compute Options - Choose Your Stack
+# =============================================================================
+# Enable the compute options you need for your project
+
+# Lambda (serverless functions) - DEFAULT
+enable_lambda = true      # Recommended for APIs, background jobs, event processing
+lambda_use_container_image = true  # Use containers (more flexible) vs ZIP packages
+lambda_architecture = "arm64"  # "arm64" (cheaper) or "x86_64"
+
+# App Runner (containerized web applications)
+enable_apprunner = false  # Enable for web apps, APIs with containers
+apprunner_cpu = 1024      # CPU units: 256, 512, 1024, 2048, 4096
+apprunner_memory = 2048   # Memory in MB: 512 to 12288
+
+# EKS (Kubernetes cluster)
+enable_eks = false        # Enable for microservices, complex workloads
+eks_cluster_version = "1.31"
+eks_node_instance_types = ["t3.medium"]
+eks_node_desired_size = 2
+eks_node_min_size = 1
+eks_node_max_size = 5
+eks_enable_cluster_autoscaler = true
+eks_enable_metrics_server = true
+eks_enable_alb_controller = true
+
+# =============================================================================
+# Python Configuration
+# =============================================================================
+
+python_version = "3.13"   # Python version for Lambda/containers (3.8 to 3.13)
+use_uv_builder = true     # Use uv for dependency management (recommended)
+
+# =============================================================================
+# ECR Configuration (Container Registry)
+# =============================================================================
+# ECR is automatically enabled if you use Lambda containers, App Runner, or EKS
+
+# List of ECR repository names to create
+# If empty, will create one repo named after project_name
+ecr_repositories = []  # Example: ["api", "worker", "frontend"]
+
+# Number of images to keep in ECR (older images are deleted)
+ecr_image_retention_count = 10
+
+# Enable automatic vulnerability scanning on image push
+ecr_enable_scan_on_push = true
+
+# =============================================================================
+# Terraform State Configuration
+# =============================================================================
+
+# S3 bucket name for Terraform state (defaults to: {project_name}-terraform-state-{account_id})
+# Leave null to use default naming (recommended)
+state_bucket_name = null
+
+# Enable access logging for the state bucket (costs extra)
+enable_state_bucket_logging = false
+
+# Create a backup bucket for state files (recommended)
+create_backup_bucket = true
+
+# =============================================================================
+# Networking Configuration
+# =============================================================================
+
+# Create VPC (required for EKS, optional for App Runner)
+# If null, will auto-create VPC only if EKS is enabled
+create_vpc = null
+
+# VPC CIDR block
+vpc_cidr = "10.0.0.0/16"
+
+# Number of availability zones (2 or 3)
+vpc_availability_zones = 2
+
+# =============================================================================
+# IAM Configuration
+# =============================================================================
+
+# Use custom IAM policies vs AdministratorAccess
+use_custom_iam_policies = true
+
+# Maximum session duration for GitHub Actions roles (in seconds)
+max_session_duration = 3600  # 1 hour (3600 to 43200)
+
+# =============================================================================
+# Additional Tags
+# =============================================================================
+
+additional_tags = {
+  # Example tags:
+  # Team        = "platform"
+  # CostCenter  = "engineering"
+  # Environment = "bootstrap"
+}
+
+# =============================================================================
+# Example Configurations for Common Use Cases
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Example 1: Simple Lambda API
+# -----------------------------------------------------------------------------
+# project_name = "my-api"
+# enable_lambda = true
+# enable_apprunner = false
+# enable_eks = false
+# lambda_use_container_image = true
+# python_version = "3.13"
+
+# -----------------------------------------------------------------------------
+# Example 2: Containerized Web App (App Runner)
+# -----------------------------------------------------------------------------
+# project_name = "my-webapp"
+# enable_lambda = false
+# enable_apprunner = true
+# enable_eks = false
+# ecr_repositories = ["web", "worker"]
+# python_version = "3.13"
+
+# -----------------------------------------------------------------------------
+# Example 3: Microservices Platform (EKS)
+# -----------------------------------------------------------------------------
+# project_name = "platform"
+# enable_lambda = false
+# enable_apprunner = false
+# enable_eks = true
+# eks_cluster_version = "1.31"
+# eks_node_instance_types = ["t3.medium"]
+# ecr_repositories = ["auth-service", "api-gateway", "data-processor"]
+# create_vpc = true
+# vpc_availability_zones = 3
+
+# -----------------------------------------------------------------------------
+# Example 4: Hybrid (Lambda + App Runner)
+# -----------------------------------------------------------------------------
+# project_name = "hybrid-app"
+# enable_lambda = true
+# enable_apprunner = true
+# enable_eks = false
+# ecr_repositories = ["web-frontend"]  # For App Runner
+# lambda_use_container_image = true  # Lambda uses ECR too
+# python_version = "3.13"
