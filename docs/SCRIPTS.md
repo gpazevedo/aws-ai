@@ -230,8 +230,13 @@ make setup-workflows
    - Lambda enabled?
    - App Runner enabled?
    - EKS enabled?
-2. Reads IAM role ARNs for each environment
-3. Generates appropriate GitHub Actions workflows in `.github/workflows/`
+   - Test environment enabled?
+2. Reads IAM role ARNs for each environment (dev, test, prod)
+3. **Detects ECR repository configuration:**
+   - Looks for repos with "lambda" in name → uses for Lambda workflows
+   - Looks for repos with "eks" in name → uses for EKS workflows
+   - Falls back to first repo if specific names not found
+4. Generates appropriate GitHub Actions workflows in `.github/workflows/`
 
 **Generated workflows**:
 
@@ -246,8 +251,13 @@ make setup-workflows
 - ✅ Uses OIDC for AWS authentication (no long-lived credentials)
 - ✅ Builds and pushes Docker images to ECR
 - ✅ Deploys to appropriate service (Lambda/App Runner/EKS)
-- ✅ Environment-specific (dev, production)
-- ✅ Proper tagging with Git SHA
+- ✅ Environment-specific (dev, test, production)
+- ✅ **Advanced image tagging strategy:**
+  - Primary tag: `{env}-{service}-{git-sha-short}` (e.g., `dev-api-abc1234`)
+  - Service latest: `{env}-{service}-latest` (e.g., `dev-api-latest`)
+  - Environment latest: `{env}-latest` (e.g., `dev-latest`)
+- ✅ Separate ECR repos for Lambda and EKS (when configured)
+- ✅ arm64 architecture by default (AWS Graviton2)
 
 **Example: Lambda Dev Workflow**
 ```yaml
@@ -294,14 +304,66 @@ jobs:
 - After initial bootstrap deployment
 - After enabling/disabling compute options
 - After adding new environments
+- **After changing ECR repository configuration**
+
+**ECR Repository Detection**:
+
+The script automatically detects your ECR configuration and uses appropriate repos:
+
+| ECR Configuration | Lambda Workflows Use | EKS Workflows Use |
+|-------------------|---------------------|-------------------|
+| `ecr_repositories = []` | First repo (e.g., `my-project`) | Same repo |
+| `ecr_repositories = ["lambda", "eks"]` | `my-project-lambda` | `my-project-eks` |
+| `ecr_repositories = ["api", "worker"]` | First repo (`my-project-api`) | First repo |
+
+**Detection logic:**
+1. Searches for repo name containing "lambda" → uses for Lambda
+2. Searches for repo name containing "eks" → uses for EKS
+3. Falls back to first available repo if specific names not found
+
+**Example: Separate repos for Lambda and EKS**
+```hcl
+# bootstrap/terraform.tfvars
+ecr_repositories = ["lambda", "eks"]
+```
+
+After applying and regenerating workflows:
+- Lambda workflows use: `123456789.dkr.ecr.us-east-1.amazonaws.com/my-project-lambda`
+- EKS workflows use: `123456789.dkr.ecr.us-east-1.amazonaws.com/my-project-eks`
+
+**Image Tagging in Generated Workflows**:
+
+All generated workflows create three tags per build:
+```bash
+# Example for commit abc1234, service "api", environment "dev"
+dev-api-abc1234     # Primary: environment-service-gitsha[0:7]
+dev-api-latest      # Latest for this service in this environment
+dev-latest          # Latest for this environment (any service)
+```
+
+Benefits:
+- Easy rollback: Use `dev-api-latest` to rollback to last known good
+- Version tracking: Git SHA in tag allows tracing to source code
+- Environment safety: Environment prefix prevents deploying dev to prod
 
 **Customization**:
 After generation, you can customize:
 - Trigger conditions (branches, paths)
-- Build arguments
-- Deployment strategies
-- Environment variables
-- Health checks
+- Build arguments and Dockerfile locations
+- Deployment strategies (blue/green, canary)
+- Environment variables and secrets
+- Health checks and rollback conditions
+- **Image names**: Change `IMAGE_NAME` variable in workflow
+
+**Example: Custom service name**
+```yaml
+# In generated workflow, change:
+IMAGE_NAME: api          # Default
+# To:
+IMAGE_NAME: worker       # Custom
+
+# Results in tags like: dev-worker-abc1234
+```
 
 ---
 
