@@ -7,6 +7,10 @@ on:
     paths:
       - 'backend/**'
       - '.github/workflows/deploy-lambda-dev.yml'
+env:
+  PROJECT_NAME: ${{ secrets.PROJECT_NAME }}
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  AWS_REGION: ${{ secrets.AWS_REGION }}
 
 env:
   PROJECT_NAME: ${{ vars.PROJECT_NAME }}
@@ -89,7 +93,7 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.PROJECT_NAME }}-github-actions-dev
           aws-region: ${{ env.AWS_REGION }}
-
+  
       - name: Build and push Lambda Docker image
         run: |
           # Use centralized docker-push.sh script for consistent builds
