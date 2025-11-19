@@ -12,7 +12,8 @@
 resource "aws_ecr_repository" "app" {
   for_each = toset(local.ecr_repo_names)
 
-  name                 = "${var.project_name}-${each.key}"
+  # Avoid duplication: if each.key is already project_name, don't add prefix
+  name                 = each.key == var.project_name ? var.project_name : "${var.project_name}-${each.key}"
   image_tag_mutability = "MUTABLE"
 
   image_scanning_configuration {
@@ -26,7 +27,7 @@ resource "aws_ecr_repository" "app" {
   tags = merge(
     local.common_tags,
     {
-      Name       = "${var.project_name}-${each.key}"
+      Name       = each.key == var.project_name ? var.project_name : "${var.project_name}-${each.key}"
       Repository = each.key
     }
   )

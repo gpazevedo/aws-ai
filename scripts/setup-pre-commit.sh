@@ -31,7 +31,7 @@ echo ""
 
 # Install dev dependencies
 echo -e "${BLUE}📦 Installing dev dependencies with uv...${NC}"
-uv sync --dev
+uv sync --no-build
 
 if [ $? -ne 0 ]; then
     echo -e "${RED}❌ Failed to install dependencies${NC}"

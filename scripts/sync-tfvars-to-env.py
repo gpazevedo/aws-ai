@@ -189,9 +189,7 @@ def read_env_file(env_file: Path) -> dict[str, str]:
     return env_vars
 
 
-def write_env_file(
-    env_file: Path, variables: dict[str, str], header: str | None = None
-) -> None:
+def write_env_file(env_file: Path, variables: dict[str, str], header: str | None = None) -> None:
     """Write variables to .env file."""
     with env_file.open("w") as f:
         # Write header
