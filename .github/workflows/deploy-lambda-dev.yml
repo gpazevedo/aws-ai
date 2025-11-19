@@ -10,7 +10,7 @@ on:
 jobs:
   # Detect which services changed
   detect-changes:
-    runs-on: ubuntu-24.04-arm64
+    runs-on: ubuntu-22.04-arm64
     outputs:
       services: ${{ steps.filter.outputs.changes }}
     steps:
@@ -28,7 +28,7 @@ jobs:
   deploy:
     needs: detect-changes
     if: ${{ needs.detect-changes.outputs.services != '[]' }}
-    runs-on: ubuntu-24.04-arm64
+    runs-on: ubuntu-22.04-arm64
     environment: dev
     permissions:
       id-token: write
