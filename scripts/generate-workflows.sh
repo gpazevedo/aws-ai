@@ -91,6 +91,56 @@ echo ""
 mkdir -p "$WORKFLOWS_DIR"
 
 # =============================================================================
+# Detect Backend Services
+# =============================================================================
+
+echo -e "${BLUE}🔍 Detecting backend services...${NC}"
+
+# Find all directories in backend/ (excluding Dockerfile* and other files)
+BACKEND_SERVICES=()
+if [ -d "backend" ]; then
+  for dir in backend/*/; do
+    if [ -d "$dir" ]; then
+      service_name=$(basename "$dir")
+      # Skip if it's a Dockerfile or other non-service directory
+      if [[ ! "$service_name" =~ ^Dockerfile ]]; then
+        BACKEND_SERVICES+=("$service_name")
+      fi
+    fi
+  done
+fi
+
+if [ ${#BACKEND_SERVICES[@]} -eq 0 ]; then
+  BACKEND_SERVICES=("api")
+  echo -e "${YELLOW}⚠️  No backend services found, using default: api${NC}"
+else
+  echo -e "${GREEN}✅ Found services: ${BACKEND_SERVICES[*]}${NC}"
+fi
+echo ""
+
+# Generate path filter configuration for GitHub Actions
+SERVICES_FILTER=""
+for service in "${BACKEND_SERVICES[@]}"; do
+  SERVICES_FILTER="${SERVICES_FILTER}            $service:
+              - 'backend/$service/**'
+              - 'backend/Dockerfile.lambda'
+"
+done
+
+# Generate JSON array for matrix strategy: ["api", "worker"]
+SERVICES_JSON="["
+first=true
+for service in "${BACKEND_SERVICES[@]}"; do
+  if [ "$first" = true ]; then
+    SERVICES_JSON="${SERVICES_JSON}\"$service\""
+    first=false
+  else
+    SERVICES_JSON="${SERVICES_JSON}, \"$service\""
+  fi
+done
+SERVICES_JSON="${SERVICES_JSON}]"
+
+# =============================================================================
 # Generate Lambda Workflows
 # =============================================================================
 
@@ -105,17 +155,34 @@ on:
   push:
     branches: [main]
     paths:
-      - 'backend/api/**'
-      - 'backend/Dockerfile.lambda'
+      - 'backend/**'
       - '.github/workflows/deploy-lambda-dev.yml'
 
 jobs:
+  # Detect which services changed
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      services: \${{ steps.filter.outputs.changes }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+$SERVICES_FILTER
+
   deploy:
+    needs: detect-changes
+    if: \${{ needs.detect-changes.outputs.services != '[]' }}
     runs-on: ubuntu-latest
     environment: dev
     permissions:
       id-token: write
       contents: read
+    strategy:
+      matrix:
+        service: \${{ fromJSON(needs.detect-changes.outputs.services) }}
 
     steps:
       - name: Checkout code
@@ -127,62 +194,20 @@ jobs:
           role-to-assume: ${ROLE_DEV}
           aws-region: ${AWS_REGION}
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
       - name: Build and push Lambda Docker image
-        env:
-          ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${ECR_REPOSITORY}
-          ENVIRONMENT: dev
-          GIT_SHA: \${{ github.sha }}
-          SERVICE_FOLDER: api
-          IMAGE_NAME: api
         run: |
-          cd backend
-          # Build image with multiple tags
-          # Format: {folder}/{env}/{folder}-{datetime}-{sha}, {folder}/{env}/{folder}-latest, {folder}/{env}/latest
-          SHORT_SHA=\${GIT_SHA:0:7}
-          TIMESTAMP=\$(date -u +%Y-%m-%d-%H-%M)
-
-          # Primary tag: api/dev/api-2025-11-18-21-02-abc1234
-          PRIMARY_TAG="\${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-\${TIMESTAMP}-\${SHORT_SHA}"
-
-          # Build image with SERVICE_FOLDER parameter
-          docker build \\
-            --build-arg SERVICE_FOLDER=\${SERVICE_FOLDER} \\
-            --platform linux/arm64 \\
-            -f Dockerfile.lambda \\
-            -t \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG \\
-            .
-
-          # Push primary tag
-          docker push \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG
-
-          # Tag and push: api/dev/api-latest
-          docker tag \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG \\
-            \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-latest
-          docker push \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-latest
-
-          # Tag and push: api/dev/latest (for quick rollback)
-          docker tag \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG \\
-            \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/latest
-          docker push \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/latest
-
-          echo "IMAGE_TAG=\$PRIMARY_TAG" >> \$GITHUB_OUTPUT
-          echo "📦 Pushed image tags:"
-          echo "  - \$PRIMARY_TAG"
-          echo "  - \${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-latest"
-          echo "  - \${IMAGE_NAME}/\${ENVIRONMENT}/latest"
+          # Use centralized docker-push.sh script for consistent builds
+          ./scripts/docker-push.sh dev \${{ matrix.service }} Dockerfile.lambda
 
       - name: Update Lambda function
-        env:
-          IMAGE_TAG: \${{ steps.build-and-push.outputs.IMAGE_TAG }}
         run: |
+          # Use the service-environment-latest tag for Lambda deployments
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          IMAGE_URI="\${ECR_REGISTRY}/${ECR_REPOSITORY}:\${{ matrix.service }}-dev-latest"
+
           aws lambda update-function-code \\
-            --function-name ${PROJECT_NAME}-dev-api \\
-            --image-uri \${{ steps.login-ecr.outputs.registry }}/${ECR_REPOSITORY}:\${IMAGE_TAG}
+            --function-name ${PROJECT_NAME}-dev-\${{ matrix.service }} \\
+            --image-uri "\${IMAGE_URI}"
 EOF
 
   echo -e "${GREEN}   ✅ Created deploy-lambda-dev.yml${NC}"
@@ -203,6 +228,10 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    strategy:
+      matrix:
+        # Services detected from backend/ directory
+        service: ${SERVICES_JSON}
 
     steps:
       - name: Checkout code
@@ -214,63 +243,20 @@ jobs:
           role-to-assume: ${ROLE_PROD}
           aws-region: ${AWS_REGION}
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
       - name: Build and push Lambda Docker image
-        id: build-and-push
-        env:
-          ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${ECR_REPOSITORY}
-          ENVIRONMENT: prod
-          GIT_SHA: \${{ github.sha }}
-          SERVICE_FOLDER: api
-          IMAGE_NAME: api
         run: |
-          cd backend
-          # Build image with multiple tags
-          # Format: {folder}/{env}/{folder}-{datetime}-{sha}, {folder}/{env}/{folder}-latest, {folder}/{env}/latest
-          SHORT_SHA=\${GIT_SHA:0:7}
-          TIMESTAMP=\$(date -u +%Y-%m-%d-%H-%M)
-
-          # Primary tag: api/prod/api-2025-11-18-21-02-abc1234
-          PRIMARY_TAG="\${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-\${TIMESTAMP}-\${SHORT_SHA}"
-
-          # Build image with SERVICE_FOLDER parameter
-          docker build \\
-            --build-arg SERVICE_FOLDER=\${SERVICE_FOLDER} \\
-            --platform linux/arm64 \\
-            -f Dockerfile.lambda \\
-            -t \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG \\
-            .
-
-          # Push primary tag
-          docker push \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG
-
-          # Tag and push: api/prod/api-latest
-          docker tag \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG \\
-            \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-latest
-          docker push \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-latest
-
-          # Tag and push: api/prod/latest (for quick rollback)
-          docker tag \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG \\
-            \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/latest
-          docker push \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/latest
-
-          echo "IMAGE_TAG=\$PRIMARY_TAG" >> \$GITHUB_OUTPUT
-          echo "📦 Pushed image tags:"
-          echo "  - \$PRIMARY_TAG"
-          echo "  - \${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-latest"
-          echo "  - \${IMAGE_NAME}/\${ENVIRONMENT}/latest"
+          # Use centralized docker-push.sh script for consistent builds
+          ./scripts/docker-push.sh prod \${{ matrix.service }} Dockerfile.lambda
 
       - name: Update Lambda function
-        env:
-          IMAGE_TAG: \${{ steps.build-and-push.outputs.IMAGE_TAG }}
         run: |
+          # Use the service-environment-latest tag for Lambda deployments
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          IMAGE_URI="\${ECR_REGISTRY}/${ECR_REPOSITORY}:\${{ matrix.service }}-prod-latest"
+
           aws lambda update-function-code \\
-            --function-name ${PROJECT_NAME}-prod-api \\
-            --image-uri \${{ steps.login-ecr.outputs.registry }}/${ECR_REPOSITORY}:\${IMAGE_TAG}
+            --function-name ${PROJECT_NAME}-prod-\${{ matrix.service }} \\
+            --image-uri "\${IMAGE_URI}"
 
 EOF
 
@@ -292,8 +278,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'backend/api/**'
-      - 'backend/Dockerfile.apprunner'
+      - 'backend/**'
       - '.github/workflows/deploy-apprunner-dev.yml'
 
 jobs:
@@ -303,6 +288,10 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    strategy:
+      matrix:
+        # Keep simple for now - add more services as needed
+        service: [api]
 
     steps:
       - name: Checkout code
@@ -314,59 +303,15 @@ jobs:
           role-to-assume: ${ROLE_DEV}
           aws-region: ${AWS_REGION}
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build and push Docker image
-        id: build-and-push
-        env:
-          ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${ECR_REPOSITORY}
-          ENVIRONMENT: dev
-          GIT_SHA: \${{ github.sha }}
-          SERVICE_FOLDER: api
-          IMAGE_NAME: api
+      - name: Build and push App Runner Docker image
         run: |
-          cd backend
-          # Build image with multiple tags
-          # Format: {folder}/{env}/{folder}-{datetime}-{sha}, {folder}/{env}/{folder}-latest, {folder}/{env}/latest
-          SHORT_SHA=\${GIT_SHA:0:7}
-          TIMESTAMP=\$(date -u +%Y-%m-%d-%H-%M)
-
-          # Primary tag: api/dev/api-2025-11-18-21-02-abc1234
-          PRIMARY_TAG="\${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-\${TIMESTAMP}-\${SHORT_SHA}"
-
-          # Build image with SERVICE_FOLDER parameter
-          docker build \\
-            --build-arg SERVICE_FOLDER=\${SERVICE_FOLDER} \\
-            -f Dockerfile.apprunner \\
-            -t \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG \\
-            .
-
-          # Push primary tag
-          docker push \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG
-
-          # Tag and push: api/dev/api-latest
-          docker tag \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG \\
-            \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-latest
-          docker push \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-latest
-
-          # Tag and push: api/dev/latest (for quick rollback)
-          docker tag \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG \\
-            \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/latest
-          docker push \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/latest
-
-          echo "IMAGE_TAG=\$PRIMARY_TAG" >> \$GITHUB_OUTPUT
-          echo "📦 Pushed image tags:"
-          echo "  - \$PRIMARY_TAG"
-          echo "  - \${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-latest"
-          echo "  - \${IMAGE_NAME}/\${ENVIRONMENT}/latest"
+          # Use centralized docker-push.sh script for consistent builds
+          ./scripts/docker-push.sh dev ${{ matrix.service }} Dockerfile.apprunner
 
       - name: Deploy to App Runner
         run: |
           # Get App Runner service ARN (assumes service already exists from Terraform)
-          SERVICE_ARN=\$(aws apprunner list-services --query "ServiceSummaryList[?ServiceName=='${PROJECT_NAME}-dev'].ServiceArn" --output text)
+          SERVICE_ARN=\$(aws apprunner list-services --query "ServiceSummaryList[?ServiceName=='${PROJECT_NAME}-dev-\${{ matrix.service }}'].ServiceArn" --output text)
 
           if [ -n "\$SERVICE_ARN" ]; then
             echo "Starting deployment to App Runner service: \$SERVICE_ARN"
@@ -395,6 +340,10 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    strategy:
+      matrix:
+        # Keep simple for now - add more services as needed
+        service: [api]
 
     steps:
       - name: Checkout code
@@ -406,58 +355,14 @@ jobs:
           role-to-assume: ${ROLE_PROD}
           aws-region: ${AWS_REGION}
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build and push Docker image
-        id: build-and-push
-        env:
-          ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${ECR_REPOSITORY}
-          ENVIRONMENT: prod
-          GIT_SHA: \${{ github.sha }}
-          SERVICE_FOLDER: api
-          IMAGE_NAME: api
+      - name: Build and push App Runner Docker image
         run: |
-          cd backend
-          # Build image with multiple tags
-          # Format: {folder}/{env}/{folder}-{datetime}-{sha}, {folder}/{env}/{folder}-latest, {folder}/{env}/latest
-          SHORT_SHA=\${GIT_SHA:0:7}
-          TIMESTAMP=\$(date -u +%Y-%m-%d-%H-%M)
-
-          # Primary tag: api/prod/api-2025-11-18-21-02-abc1234
-          PRIMARY_TAG="\${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-\${TIMESTAMP}-\${SHORT_SHA}"
-
-          # Build image with SERVICE_FOLDER parameter
-          docker build \\
-            --build-arg SERVICE_FOLDER=\${SERVICE_FOLDER} \\
-            -f Dockerfile.apprunner \\
-            -t \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG \\
-            .
-
-          # Push primary tag
-          docker push \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG
-
-          # Tag and push: api/prod/api-latest
-          docker tag \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG \\
-            \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-latest
-          docker push \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-latest
-
-          # Tag and push: api/prod/latest (for quick rollback)
-          docker tag \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG \\
-            \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/latest
-          docker push \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/latest
-
-          echo "IMAGE_TAG=\$PRIMARY_TAG" >> \$GITHUB_OUTPUT
-          echo "📦 Pushed image tags:"
-          echo "  - \$PRIMARY_TAG"
-          echo "  - \${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-latest"
-          echo "  - \${IMAGE_NAME}/\${ENVIRONMENT}/latest"
+          # Use centralized docker-push.sh script for consistent builds
+          ./scripts/docker-push.sh prod ${{ matrix.service }} Dockerfile.apprunner
 
       - name: Deploy to App Runner
         run: |
-          SERVICE_ARN=\$(aws apprunner list-services --query "ServiceSummaryList[?ServiceName=='${PROJECT_NAME}-prod'].ServiceArn" --output text)
+          SERVICE_ARN=\$(aws apprunner list-services --query "ServiceSummaryList[?ServiceName=='${PROJECT_NAME}-prod-${{ matrix.service }}'].ServiceArn" --output text)
 
           if [ -n "\$SERVICE_ARN" ]; then
             echo "Starting deployment to App Runner service: \$SERVICE_ARN"
@@ -486,8 +391,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'backend/api/**'
-      - 'backend/Dockerfile.eks'
+      - 'backend/**'
       - 'k8s/**'
       - '.github/workflows/deploy-eks-dev.yml'
 
@@ -498,6 +402,10 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    strategy:
+      matrix:
+        # Keep simple for now - add more services as needed
+        service: [api]
 
     steps:
       - name: Checkout code
@@ -509,70 +417,27 @@ jobs:
           role-to-assume: ${ROLE_DEV}
           aws-region: ${AWS_REGION}
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
       - name: Build and push EKS Docker image
-        id: build-and-push
-        env:
-          ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${ECR_REPOSITORY}
-          ENVIRONMENT: dev
-          GIT_SHA: \${{ github.sha }}
-          SERVICE_FOLDER: api
-          IMAGE_NAME: api
         run: |
-          cd backend
-          # Build image with multiple tags
-          # Format: {folder}/{env}/{folder}-{datetime}-{sha}, {folder}/{env}/{folder}-latest, {folder}/{env}/latest
-          SHORT_SHA=\${GIT_SHA:0:7}
-          TIMESTAMP=\$(date -u +%Y-%m-%d-%H-%M)
-
-          # Primary tag: api/dev/api-2025-11-18-21-02-abc1234
-          PRIMARY_TAG="\${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-\${TIMESTAMP}-\${SHORT_SHA}"
-
-          # Build image with SERVICE_FOLDER parameter
-          docker build \\
-            --build-arg SERVICE_FOLDER=\${SERVICE_FOLDER} \\
-            --platform linux/arm64 \\
-            -f Dockerfile.eks \\
-            -t \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG \\
-            .
-
-          # Push primary tag
-          docker push \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG
-
-          # Tag and push: api/dev/api-latest
-          docker tag \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG \\
-            \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-latest
-          docker push \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-latest
-
-          # Tag and push: api/dev/latest (for quick rollback)
-          docker tag \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG \\
-            \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/latest
-          docker push \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/latest
-
-          echo "IMAGE_TAG=\$PRIMARY_TAG" >> \$GITHUB_OUTPUT
-          echo "📦 Pushed image tags:"
-          echo "  - \$PRIMARY_TAG"
-          echo "  - \${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-latest"
-          echo "  - \${IMAGE_NAME}/\${ENVIRONMENT}/latest"
+          # Use centralized docker-push.sh script for consistent builds
+          ./scripts/docker-push.sh dev ${{ matrix.service }} Dockerfile.eks
 
       - name: Update kubeconfig
         run: |
           aws eks update-kubeconfig --name ${PROJECT_NAME} --region ${AWS_REGION}
 
       - name: Deploy to Kubernetes
-        env:
-          IMAGE_TAG: \${{ steps.build-and-push.outputs.IMAGE_TAG }}
         run: |
-          kubectl set image deployment/${PROJECT_NAME}-api \\
-            ${PROJECT_NAME}-api=\${{ steps.login-ecr.outputs.registry }}/${ECR_REPOSITORY}:\${IMAGE_TAG} \\
+          # Use the service-environment-latest tag for EKS deployments
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          IMAGE_URI="\${ECR_REGISTRY}/${ECR_REPOSITORY}:${{ matrix.service }}-dev-latest"
+
+          kubectl set image deployment/${PROJECT_NAME}-${{ matrix.service }} \\
+            ${PROJECT_NAME}-${{ matrix.service }}="\${IMAGE_URI}" \\
             -n dev
 
           # Wait for rollout
-          kubectl rollout status deployment/${PROJECT_NAME}-api -n dev --timeout=5m
+          kubectl rollout status deployment/${PROJECT_NAME}-${{ matrix.service }} -n dev --timeout=5m
 EOF
 
   echo -e "${GREEN}   ✅ Created deploy-eks-dev.yml${NC}"
@@ -593,6 +458,10 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    strategy:
+      matrix:
+        # Keep simple for now - add more services as needed
+        service: [api]
 
     steps:
       - name: Checkout code
@@ -604,69 +473,26 @@ jobs:
           role-to-assume: ${ROLE_PROD}
           aws-region: ${AWS_REGION}
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Build and push Docker image
-        id: build-and-push
-        env:
-          ECR_REGISTRY: \${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${ECR_REPOSITORY}
-          ENVIRONMENT: prod
-          GIT_SHA: \${{ github.sha }}
-          SERVICE_FOLDER: api
-          IMAGE_NAME: api
+      - name: Build and push EKS Docker image
         run: |
-          cd backend
-          # Build image with multiple tags
-          # Format: {folder}/{env}/{folder}-{datetime}-{sha}, {folder}/{env}/{folder}-latest, {folder}/{env}/latest
-          SHORT_SHA=\${GIT_SHA:0:7}
-          TIMESTAMP=\$(date -u +%Y-%m-%d-%H-%M)
-
-          # Primary tag: api/prod/api-2025-11-18-21-02-abc1234
-          PRIMARY_TAG="\${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-\${TIMESTAMP}-\${SHORT_SHA}"
-
-          # Build image with SERVICE_FOLDER parameter
-          docker build \\
-            --build-arg SERVICE_FOLDER=\${SERVICE_FOLDER} \\
-            --platform linux/arm64 \\
-            -f Dockerfile.eks \\
-            -t \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG \\
-            .
-
-          # Push primary tag
-          docker push \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG
-
-          # Tag and push: api/prod/api-latest
-          docker tag \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG \\
-            \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-latest
-          docker push \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-latest
-
-          # Tag and push: api/prod/latest (for quick rollback)
-          docker tag \$ECR_REGISTRY/\$ECR_REPOSITORY:\$PRIMARY_TAG \\
-            \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/latest
-          docker push \$ECR_REGISTRY/\$ECR_REPOSITORY:\${IMAGE_NAME}/\${ENVIRONMENT}/latest
-
-          echo "IMAGE_TAG=\$PRIMARY_TAG" >> \$GITHUB_OUTPUT
-          echo "📦 Pushed image tags:"
-          echo "  - \$PRIMARY_TAG"
-          echo "  - \${IMAGE_NAME}/\${ENVIRONMENT}/\${IMAGE_NAME}-latest"
-          echo "  - \${IMAGE_NAME}/\${ENVIRONMENT}/latest"
+          # Use centralized docker-push.sh script for consistent builds
+          ./scripts/docker-push.sh prod ${{ matrix.service }} Dockerfile.eks
 
       - name: Update kubeconfig
         run: |
           aws eks update-kubeconfig --name ${PROJECT_NAME} --region ${AWS_REGION}
 
       - name: Deploy to Kubernetes
-        env:
-          IMAGE_TAG: \${{ steps.build-and-push.outputs.IMAGE_TAG }}
         run: |
-          kubectl set image deployment/${PROJECT_NAME}-api \\
-            ${PROJECT_NAME}-api=\${{ steps.login-ecr.outputs.registry }}/${ECR_REPOSITORY}:\${IMAGE_TAG} \\
+          # Use the service-environment-latest tag for EKS deployments
+          ECR_REGISTRY="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          IMAGE_URI="\${ECR_REGISTRY}/${ECR_REPOSITORY}:${{ matrix.service }}-prod-latest"
+
+          kubectl set image deployment/${PROJECT_NAME}-${{ matrix.service }} \\
+            ${PROJECT_NAME}-${{ matrix.service }}="\${IMAGE_URI}" \\
             -n prod
 
-          kubectl rollout status deployment/${PROJECT_NAME}-api -n prod --timeout=10m
+          kubectl rollout status deployment/${PROJECT_NAME}-${{ matrix.service }} -n prod --timeout=10m
 EOF
 
   echo -e "${GREEN}   ✅ Created deploy-eks-prod.yml${NC}"

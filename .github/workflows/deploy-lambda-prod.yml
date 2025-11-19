@@ -12,6 +12,10 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    strategy:
+      matrix:
+        # Services detected from backend/ directory
+        service: ["api"]
 
     steps:
       - name: Checkout code
@@ -23,60 +27,17 @@ jobs:
           role-to-assume: arn:aws:iam::234876310489:role/aws-ai-github-actions-prod
           aws-region: us-east-1
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
-
       - name: Build and push Lambda Docker image
-        id: build-and-push
-        env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: aws-ai
-          ENVIRONMENT: prod
-          GIT_SHA: ${{ github.sha }}
-          SERVICE_FOLDER: api
-          IMAGE_NAME: api
         run: |
-          cd backend
-          # Build image with multiple tags
-          # Format: {folder}/{env}/{folder}-{datetime}-{sha}, {folder}/{env}/{folder}-latest, {folder}/{env}/latest
-          SHORT_SHA=${GIT_SHA:0:7}
-          TIMESTAMP=$(date -u +%Y-%m-%d-%H-%M)
-
-          # Primary tag: api/prod/api-2025-11-18-21-02-abc1234
-          PRIMARY_TAG="${IMAGE_NAME}/${ENVIRONMENT}/${IMAGE_NAME}-${TIMESTAMP}-${SHORT_SHA}"
-
-          # Build image with SERVICE_FOLDER parameter
-          docker build \
-            --build-arg SERVICE_FOLDER=${SERVICE_FOLDER} \
-            --platform linux/arm64 \
-            -f Dockerfile.lambda \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:$PRIMARY_TAG \
-            .
-
-          # Push primary tag
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$PRIMARY_TAG
-
-          # Tag and push: api/prod/api-latest
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$PRIMARY_TAG \
-            $ECR_REGISTRY/$ECR_REPOSITORY:${IMAGE_NAME}/${ENVIRONMENT}/${IMAGE_NAME}-latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:${IMAGE_NAME}/${ENVIRONMENT}/${IMAGE_NAME}-latest
-
-          # Tag and push: api/prod/latest (for quick rollback)
-          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$PRIMARY_TAG \
-            $ECR_REGISTRY/$ECR_REPOSITORY:${IMAGE_NAME}/${ENVIRONMENT}/latest
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:${IMAGE_NAME}/${ENVIRONMENT}/latest
-
-          echo "IMAGE_TAG=$PRIMARY_TAG" >> $GITHUB_OUTPUT
-          echo "📦 Pushed image tags:"
-          echo "  - $PRIMARY_TAG"
-          echo "  - ${IMAGE_NAME}/${ENVIRONMENT}/${IMAGE_NAME}-latest"
-          echo "  - ${IMAGE_NAME}/${ENVIRONMENT}/latest"
+          # Use centralized docker-push.sh script for consistent builds
+          ./scripts/docker-push.sh prod ${{ matrix.service }} Dockerfile.lambda
 
       - name: Update Lambda function
-        env:
-          IMAGE_TAG: ${{ steps.build-and-push.outputs.IMAGE_TAG }}
         run: |
+          # Use the service-environment-latest tag for Lambda deployments
+          ECR_REGISTRY="234876310489.dkr.ecr.us-east-1.amazonaws.com"
+          IMAGE_URI="${ECR_REGISTRY}/aws-ai:${{ matrix.service }}-prod-latest"
+
           aws lambda update-function-code \
-            --function-name aws-ai-prod-api \
-            --image-uri ${{ steps.login-ecr.outputs.registry }}/aws-ai:${IMAGE_TAG}
+            --function-name aws-ai-prod-${{ matrix.service }} \
+            --image-uri "${IMAGE_URI}"
