@@ -86,45 +86,53 @@ else
 fi
 
 # =============================================================================
-# Read Bootstrap Configuration
+# Read Bootstrap Configuration (or use environment variables)
 # =============================================================================
-BOOTSTRAP_DIR="bootstrap"
-if [ ! -d "$BOOTSTRAP_DIR" ]; then
-  echo -e "${RED}❌ Error: Bootstrap directory not found: $BOOTSTRAP_DIR${NC}"
-  echo "   Please run bootstrap first: make bootstrap-apply"
-  exit 1
+
+# Check if required environment variables are set
+if [ -z "$PROJECT_NAME" ] || [ -z "$AWS_ACCOUNT_ID" ] || [ -z "$AWS_REGION" ]; then
+  echo -e "${BLUE}📖 Reading bootstrap outputs...${NC}"
+
+  BOOTSTRAP_DIR="bootstrap"
+  if [ ! -d "$BOOTSTRAP_DIR" ]; then
+    echo -e "${RED}❌ Error: Bootstrap directory not found: $BOOTSTRAP_DIR${NC}"
+    echo "   Please run bootstrap first: make bootstrap-apply"
+    echo "   Or set environment variables: PROJECT_NAME, AWS_ACCOUNT_ID, AWS_REGION"
+    exit 1
+  fi
+
+  cd "$BOOTSTRAP_DIR"
+
+  # Get project name if not set
+  if [ -z "$PROJECT_NAME" ]; then
+    PROJECT_NAME=$(terraform output -raw project_name 2>/dev/null)
+    if [ -z "$PROJECT_NAME" ]; then
+      echo -e "${RED}❌ Error: Could not read project_name from bootstrap${NC}"
+      exit 1
+    fi
+  fi
+
+  # Get AWS account ID if not set
+  if [ -z "$AWS_ACCOUNT_ID" ]; then
+    AWS_ACCOUNT_ID=$(terraform output -raw aws_account_id 2>/dev/null)
+    if [ -z "$AWS_ACCOUNT_ID" ]; then
+      echo -e "${RED}❌ Error: Could not read aws_account_id from bootstrap${NC}"
+      exit 1
+    fi
+  fi
+
+  # Get AWS region if not set
+  if [ -z "$AWS_REGION" ]; then
+    AWS_REGION=$(terraform output -raw aws_region 2>/dev/null || echo "us-east-1")
+  fi
+
+  cd ..
+else
+  echo -e "${GREEN}✅ Using environment variables${NC}"
 fi
 
-echo -e "${BLUE}📖 Reading bootstrap outputs...${NC}"
-cd "$BOOTSTRAP_DIR"
-
-# Get project name
-PROJECT_NAME=$(terraform output -raw project_name 2>/dev/null)
-if [ -z "$PROJECT_NAME" ]; then
-  echo -e "${RED}❌ Error: Could not read project_name from bootstrap${NC}"
-  exit 1
-fi
-
-# Get AWS account ID
-AWS_ACCOUNT_ID=$(terraform output -raw aws_account_id 2>/dev/null)
-if [ -z "$AWS_ACCOUNT_ID" ]; then
-  echo -e "${RED}❌ Error: Could not read aws_account_id from bootstrap${NC}"
-  exit 1
-fi
-
-# Get AWS region
-AWS_REGION=$(terraform output -raw aws_region 2>/dev/null || echo "us-east-1")
-
-# Get ECR repositories (use single repository)
-ECR_REPOS_JSON=$(terraform output -json ecr_repositories 2>/dev/null || echo "{}")
-ECR_REPOSITORY=$(echo "$ECR_REPOS_JSON" | jq -r 'keys[]' | head -1)
-
-# Fallback to project name if no repos found
-if [ -z "$ECR_REPOSITORY" ]; then
-  ECR_REPOSITORY="${PROJECT_NAME}"
-fi
-
-cd ..
+# ECR repository is always the project name
+ECR_REPOSITORY="${PROJECT_NAME}"
 
 # Build ECR URL
 ECR_URL="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPOSITORY}"
