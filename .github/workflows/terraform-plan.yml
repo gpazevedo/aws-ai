@@ -1,0 +1,48 @@
+name: Terraform Plan
+
+on:
+  pull_request:
+    paths:
+      - 'terraform/**'
+      - '.github/workflows/terraform-plan.yml'
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        environment: [dev, prod]
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.13.0
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ matrix.environment == 'dev' && 'arn:aws:iam::234876310489:role/aws-ai-github-actions-dev' || 'arn:aws:iam::234876310489:role/aws-ai-github-actions-prod' }}
+          aws-region: us-east-1
+
+      - name: Terraform Init
+        working-directory: terraform
+        run: |
+          terraform init -backend-config=environments/${{ matrix.environment }}-backend.hcl
+
+      - name: Terraform Plan
+        working-directory: terraform
+        run: |
+          terraform plan -var-file=environments/${{ matrix.environment }}.tfvars -out=tfplan
+
+      - name: Upload Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan-${{ matrix.environment }}
+          path: terraform/tfplan
