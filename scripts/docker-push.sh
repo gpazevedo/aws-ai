@@ -90,6 +90,7 @@ fi
 # =============================================================================
 
 # Check if required environment variables are set
+echo -e $PROJECT_NAME - $AWS_ACCOUNT_ID - $AWS_REGION
 if [ -z "$PROJECT_NAME" ] || [ -z "$AWS_ACCOUNT_ID" ] || [ -z "$AWS_REGION" ]; then
   echo -e "${BLUE}📖 Reading bootstrap outputs...${NC}"
 
