@@ -933,19 +933,22 @@ make app-apply-dev      # Deploy to dev
 
 ### Docker
 ```bash
-# Build Docker images
-make docker-build              # Build arm64 image (production, default)
-make docker-build-amd64        # Build amd64 image (local testing)
-make docker-build ARCH=amd64   # Alternative: specify architecture
-make docker-build DOCKERFILE=Dockerfile.apprunner  # Specify Dockerfile
+# Build Docker images (SERVICE=api by default)
+make docker-build                              # Build api service, arm64 (default)
+make docker-build-amd64                        # Build api service, amd64 (local testing)
+make docker-build SERVICE=worker               # Build worker service, arm64
+make docker-build SERVICE=worker ARCH=amd64    # Build worker service, amd64
+make docker-build DOCKERFILE=Dockerfile.eks    # Build with EKS Dockerfile
 
 # Push to ECR (always builds and pushes arm64)
-make docker-push-dev           # Push to dev ECR
-make docker-push-test          # Push to test ECR
-make docker-push-prod          # Push to prod ECR
+make docker-push-dev                           # Push api service to dev ECR
+make docker-push-dev SERVICE=worker            # Push worker service to dev ECR
+make docker-push-test SERVICE=api              # Push api service to test ECR
+make docker-push-prod SERVICE=worker           # Push worker service to prod ECR
 
-# Example: Build and push specific Dockerfile to dev
-./scripts/docker-push.sh dev app Dockerfile.apprunner
+# Direct script usage (alternative)
+./scripts/docker-push.sh dev api Dockerfile.lambda      # Push api to dev
+./scripts/docker-push.sh prod worker Dockerfile.lambda  # Push worker to prod
 ```
 
 ---
