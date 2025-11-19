@@ -12,22 +12,64 @@ env:
   AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
   AWS_REGION: ${{ secrets.AWS_REGION }}
 
+env:
+  PROJECT_NAME: ${{ vars.PROJECT_NAME }}
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  # Array of services to deploy (only these services will be deployed if changed)
+  LAMBDAS: ${{ vars.LAMBDAS || '["api"]' }}
+
 jobs:
   # Detect which services changed
   detect-changes:
     runs-on: ubuntu-latest
     outputs:
-      services: ${{ steps.filter.outputs.changes }}
+      services: ${{ steps.filter-services.outputs.services }}
     steps:
       - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
-        id: filter
         with:
-          filters: |
-            api:
-              - 'backend/api/**'
-              - 'backend/Dockerfile.lambda'
-              - '.github/workflows/**'
+          fetch-depth: 0  # Need full history to detect changes
+
+      - name: Detect changed services
+        id: filter-services
+        run: |
+          echo "LAMBDAS configuration: $LAMBDAS"
+
+          # Parse LAMBDAS array
+          LAMBDAS_ARRAY=$(echo "$LAMBDAS" | jq -c '.')
+          echo "Services to check: $LAMBDAS_ARRAY"
+
+          # Detect changed files
+          if [ "${{ github.event_name }}" == "push" ]; then
+            CHANGED_FILES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} || echo "")
+          else
+            # For workflow_dispatch, check against main branch
+            CHANGED_FILES=$(git diff --name-only origin/main HEAD || echo "")
+          fi
+
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          # Find which services from LAMBDAS have changes
+          CHANGED_SERVICES="[]"
+
+          for service in $(echo "$LAMBDAS_ARRAY" | jq -r '.[]'); do
+            echo "Checking service: $service"
+
+            # Check if this service has changes in:
+            # - backend/$service/**
+            # - backend/Dockerfile.lambda
+            # - .github/workflows/**
+            if echo "$CHANGED_FILES" | grep -qE "(^backend/$service/|^backend/Dockerfile\.lambda|^\.github/workflows/)"; then
+              echo "  ✓ Service $service has changes"
+              CHANGED_SERVICES=$(echo "$CHANGED_SERVICES" | jq -c ". + [\"$service\"]")
+            else
+              echo "  ✗ Service $service has no changes"
+            fi
+          done
+
+          echo "Services to deploy: $CHANGED_SERVICES"
+          echo "services=$CHANGED_SERVICES" >> $GITHUB_OUTPUT
 
 
   deploy:
@@ -51,7 +93,7 @@ jobs:
         with:
           role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.PROJECT_NAME }}-github-actions-dev
           aws-region: ${{ env.AWS_REGION }}
-          
+  
       - name: Build and push Lambda Docker image
         run: |
           # Use centralized docker-push.sh script for consistent builds
@@ -60,9 +102,9 @@ jobs:
       - name: Update Lambda function
         run: |
           # Use the service-environment-latest tag for Lambda deployments
-          ECR_REGISTRY="${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com"
-          IMAGE_URI="${ECR_REGISTRY}/aws-ai:${{ matrix.service }}-dev-latest"
+          ECR_REGISTRY="${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com"
+          IMAGE_URI="${ECR_REGISTRY}/${{ env.PROJECT_NAME }}:${{ matrix.service }}-dev-latest"
 
           aws lambda update-function-code \
-            --function-name aws-ai-dev-${{ matrix.service }} \
+            --function-name ${{ env.PROJECT_NAME }}-dev-${{ matrix.service }} \
             --image-uri "${IMAGE_URI}"
