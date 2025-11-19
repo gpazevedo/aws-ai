@@ -8,9 +8,9 @@ on:
       - 'backend/**'
       - '.github/workflows/deploy-lambda-dev.yml'
 env:
-  PROJECT_NAME: ${{ vars.PROJECT_NAME }}
+  PROJECT_NAME: ${{ secrets.PROJECT_NAME }}
   AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-  AWS_REGION: ${{ vars.AWS_REGION }}
+  AWS_REGION: ${{ secrets.AWS_REGION }}
 
 jobs:
   # Detect which services changed
