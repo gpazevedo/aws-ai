@@ -219,10 +219,19 @@ aws-base/
 │       └── s3-buckets.tf  # Application S3 buckets
 │
 └── backend/               # Python backend application
-    ├── src/               # Application code
-    ├── tests/             # Test suite
-    ├── Dockerfile.lambda  # Container images
-    └── pyproject.toml     # Dependencies
+    ├── api/               # API service
+    │   ├── main.py
+    │   ├── test_main.py
+    │   ├── pyproject.toml
+    │   └── uv.lock
+    ├── worker/            # Worker service (example)
+    │   ├── main.py
+    │   ├── test_main.py
+    │   ├── pyproject.toml
+    │   └── uv.lock
+    ├── Dockerfile.lambda  # Shared Lambda container
+    ├── Dockerfile.apprunner # Shared App Runner container
+    └── Dockerfile.eks     # Shared EKS container
 ```
 
 **Rule of thumb:**

@@ -123,6 +123,7 @@ make docker-build  # Defaults to arm64
 # Direct docker command
 cd backend
 docker build --platform=linux/arm64 \
+  --build-arg SERVICE_FOLDER=api \
   -t myapp:arm64-latest \
   -f Dockerfile.lambda .
 ```
@@ -139,6 +140,7 @@ make docker-build ARCH=amd64
 # Direct docker command
 cd backend
 docker build --platform=linux/amd64 \
+  --build-arg SERVICE_FOLDER=api \
   -t myapp:amd64-latest \
   -f Dockerfile.lambda .
 ```
@@ -228,6 +230,7 @@ docker buildx inspect --bootstrap
 
 # Build with buildx
 docker buildx build --platform=linux/arm64 \
+  --build-arg SERVICE_FOLDER=api \
   -t myapp:arm64-latest \
   -f backend/Dockerfile.lambda \
   --load \
@@ -301,6 +304,7 @@ On Intel Macs, the opposite is true - amd64 is native, arm64 requires emulation.
 4. **Multi-Platform Builds**: Use docker buildx for building both simultaneously
    ```bash
    docker buildx build --platform linux/amd64,linux/arm64 \
+     --build-arg SERVICE_FOLDER=api \
      -t myapp:latest \
      -f backend/Dockerfile.lambda \
      backend/
