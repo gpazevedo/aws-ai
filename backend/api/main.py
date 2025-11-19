@@ -19,7 +19,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     return {
         "statusCode": 200,
         "headers": {"Content-Type": "application/json"},
-        "body": {"message": f"Hello, {name}!", "version": "0.1.0 !"},
+        "body": {"message": f"Hello, {name}!", "version": "0.1.0"},
     }
 
 
