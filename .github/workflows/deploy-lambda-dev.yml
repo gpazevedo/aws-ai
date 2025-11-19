@@ -60,7 +60,7 @@ jobs:
       - name: Update Lambda function
         run: |
           # Use the service-environment-latest tag for Lambda deployments
-          ECR_REGISTRY="234876310489.dkr.ecr.us-east-1.amazonaws.com"
+          ECR_REGISTRY="${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.us-east-1.amazonaws.com"
           IMAGE_URI="${ECR_REGISTRY}/aws-ai:${{ matrix.service }}-dev-latest"
 
           aws lambda update-function-code \
