@@ -7,6 +7,9 @@
 # Service folder to use (defaults to 'api')
 SERVICE ?= api
 
+# Dockerfile to use (defaults to Dockerfile.lambda)
+DOCKERFILE ?= Dockerfile.lambda
+
 # Default target
 help:
 	@echo "AWS Bootstrap Infrastructure Commands"
@@ -41,13 +44,15 @@ help:
 	@echo "  make pre-commit-all          Run all pre-commit hooks"
 	@echo "  SERVICE=worker make lint     Run lint for specific service"
 	@echo ""
-	@echo "Docker (SERVICE=api by default):"
+	@echo "Docker (SERVICE=api, DOCKERFILE=Dockerfile.lambda by default):"
 	@echo "  make docker-build            Build Docker image (arm64 by default)"
 	@echo "  make docker-build-amd64      Build Docker image for amd64 (local testing)"
 	@echo "  SERVICE=worker make docker-build  Build specific service"
+	@echo "  DOCKERFILE=Dockerfile.eks make docker-build  Use different Dockerfile"
 	@echo "  make docker-push-dev         Push Docker image to dev ECR (always arm64)"
 	@echo "  make docker-push-test        Push Docker image to test ECR (always arm64)"
 	@echo "  make docker-push-prod        Push Docker image to prod ECR (always arm64)"
+	@echo "  SERVICE=worker DOCKERFILE=Dockerfile.lambda make docker-push-dev  Push worker service"
 	@echo ""
 	@echo "Utilities:"
 	@echo "  make format-all              Format Python + Terraform"
@@ -301,16 +306,16 @@ docker-build-amd64:
 	@$(MAKE) docker-build ARCH=amd64
 
 docker-push-dev:
-	@echo "📤 Pushing Docker image to dev ECR..."
-	./scripts/docker-push.sh dev
+	@echo "📤 Pushing Docker image to dev ECR (service: $(SERVICE))..."
+	./scripts/docker-push.sh dev $(SERVICE) $(DOCKERFILE)
 
 docker-push-test:
-	@echo "📤 Pushing Docker image to test ECR..."
-	./scripts/docker-push.sh test
+	@echo "📤 Pushing Docker image to test ECR (service: $(SERVICE))..."
+	./scripts/docker-push.sh test $(SERVICE) $(DOCKERFILE)
 
 docker-push-prod:
-	@echo "📤 Pushing Docker image to prod ECR..."
-	./scripts/docker-push.sh prod
+	@echo "📤 Pushing Docker image to prod ECR (service: $(SERVICE))..."
+	./scripts/docker-push.sh prod $(SERVICE) $(DOCKERFILE)
 
 # =============================================================================
 # Python Code Quality Commands
