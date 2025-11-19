@@ -7,6 +7,10 @@ on:
     paths:
       - 'backend/**'
       - '.github/workflows/deploy-lambda-dev.yml'
+env:
+  PROJECT_NAME: ${{ vars.PROJECT_NAME }}
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  AWS_REGION: ${{ vars.AWS_REGION }}
 
 jobs:
   # Detect which services changed
@@ -45,9 +49,9 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::234876310489:role/aws-ai-github-actions-dev
-          aws-region: us-east-1
-
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.PROJECT_NAME }}-github-actions-dev
+          aws-region: ${{ env.AWS_REGION }}
+          
       - name: Build and push Lambda Docker image
         run: |
           # Use centralized docker-push.sh script for consistent builds
