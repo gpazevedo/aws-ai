@@ -867,27 +867,42 @@ uv add --dev pytest black ruff
 
 ```
 backend/
-├── __init__.py
-├── main.py             # Application entry point
-├── test_main.py        # Test suite
-├── pyproject.toml      # Project configuration
-├── uv.lock             # Locked dependencies (commit to git)
-├── Dockerfile.lambda   # Lambda container
-├── Dockerfile.apprunner # App Runner container
-└── Dockerfile.eks      # EKS container
+├── api/                    # API service
+│   ├── __init__.py
+│   ├── main.py             # Application entry point
+│   ├── test_main.py        # Test suite
+│   ├── pyproject.toml      # Project configuration
+│   └── uv.lock             # Locked dependencies (commit to git)
+├── worker/                 # Worker service (example)
+│   ├── __init__.py
+│   ├── main.py
+│   ├── test_main.py
+│   ├── pyproject.toml
+│   └── uv.lock
+├── Dockerfile.lambda       # Lambda container (shared)
+├── Dockerfile.apprunner    # App Runner container (shared)
+└── Dockerfile.eks          # EKS container (shared)
 ```
 
 ### Build Containers
 
 ```bash
-# Lambda
-docker build -f Dockerfile.lambda -t my-project:lambda .
+# Lambda (API service)
+cd backend
+docker build --build-arg SERVICE_FOLDER=api --platform=linux/arm64 \
+  -f Dockerfile.lambda -t my-project:api-lambda .
 
-# App Runner
-docker build -f Dockerfile.apprunner -t my-project:apprunner .
+# Lambda (Worker service)
+docker build --build-arg SERVICE_FOLDER=worker --platform=linux/arm64 \
+  -f Dockerfile.lambda -t my-project:worker-lambda .
 
-# EKS
-docker build -f Dockerfile.eks -t my-project:eks .
+# App Runner (API service)
+docker build --build-arg SERVICE_FOLDER=api --platform=linux/arm64 \
+  -f Dockerfile.apprunner -t my-project:api-apprunner .
+
+# EKS (API service)
+docker build --build-arg SERVICE_FOLDER=api --platform=linux/arm64 \
+  -f Dockerfile.eks -t my-project:api-eks .
 ```
 
 ---
